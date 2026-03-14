@@ -18,9 +18,6 @@ Connects Claude Desktop directly to your Google Drive with full read/write acces
 - ✅ Separate config file — change settings without touching code
 - ✅ One-click Windows installer
 
-## Known Issues
-- v4.1: Delete confirmation is handled conversationally by Claude rather than as a hard tool-level block. File is never deleted without user confirmation — fix coming in v4.2.
-
 ## Requirements
 - Windows 10/11
 - Node.js (LTS) — https://nodejs.org
