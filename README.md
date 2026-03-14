@@ -56,12 +56,15 @@ Then:
 
 ## Updating
 
+Updates only replace server files — you do NOT need to re-authenticate after updating.
+
 **Windows:** Download and double-click `update.bat`
 
 **Mac:** Run in Terminal:
 ```
 curl -s --output update.sh https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main/update.sh && chmod +x update.sh && bash update.sh
 ```
+After updating — restart Claude Desktop and you're done.
 
 ## Re-Authentication
 If your Google Drive access stops working:
