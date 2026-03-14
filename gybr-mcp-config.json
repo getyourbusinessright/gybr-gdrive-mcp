@@ -1,0 +1,45 @@
+{
+  "workspace": {
+    "newFilesFolders": [
+      "AI-Created",
+      "AI-Drafts",
+      "Exports"
+    ],
+    "archiveFolder": "AI-Archive",
+    "readEverywhere": true,
+    "editExistingEverywhere": true
+  },
+  "permissions": {
+    "requireConfirmForOverwrite": true,
+    "requireConfirmForDelete": true,
+    "requireReasonForDelete": true,
+    "requireReasonForDestructiveEdit": true,
+    "softDeleteOnly": true
+  },
+  "backup": {
+    "autoBackupBeforeDestructiveEdit": true,
+    "backupNamingFormat": "{filename}.backup-{date}.{ext}",
+    "backupDateFormat": "YYYY-MM-DDTHH-mm"
+  },
+  "logging": {
+    "logReads": false,
+    "logWrites": true,
+    "logDeletes": true,
+    "logExports": true,
+    "logBackups": true
+  },
+  "draftMode": {
+    "defaultMode": "draft",
+    "allowConversationOverride": true,
+    "destructiveEditsAlwaysRequireConfirm": true
+  },
+  "rateLimits": {
+    "maxWritesPerMinute": 10,
+    "maxDeletesPerSession": 3
+  },
+  "naming": {
+    "aiPrefix": "AI",
+    "includeDate": true,
+    "format": "AI_YYYYMMDD_{title}"
+  }
+}
