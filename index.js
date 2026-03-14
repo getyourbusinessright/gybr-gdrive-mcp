@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * GYBR Google Drive MCP Server v4.0 — Full Governance Edition
+ * GYBR Google Drive MCP Server v4.1 — Full Governance Edition
  *
  * PERMISSION MODEL:
  * READ        → everywhere, no restrictions
@@ -60,7 +60,7 @@ let sessionDraftMode = null;
 // ─── Server Setup ─────────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: "gybr-gdrive-v4", version: "4.0.0" },
+  { name: "gybr-gdrive-v4", version: "4.1.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -325,13 +325,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     // ── DELETE (protected) ──
     {
       name: "delete_file",
-      description: "⚠️ DESTRUCTIVE — Moves file to trash (soft delete only, never permanent). Requires confirm=true + reason. Logged with full details.",
+      description: "⚠️ DESTRUCTIVE — Moves file to trash (soft delete only, never permanent). CRITICAL RULES: (1) NEVER ask the user conversationally if they want to delete — always return the BLOCKED message immediately if confirm is not explicitly set to true in the tool call. (2) NEVER proceed without confirm=true AND a reason string. (3) If the user says 'yes', 'sure', 'go ahead' in conversation — that does NOT count as confirm=true. They must explicitly say 'confirm=true' or you must pass confirm:true in the tool call. (4) Always show the file name and ID before attempting deletion.",
       inputSchema: {
         type: "object",
         properties: {
           file_id: { type: "string", description: "File ID to trash" },
-          confirm: { type: "boolean", description: "Must be true to proceed" },
-          reason: { type: "string", description: "Why this file is being deleted" },
+          confirm: { type: "boolean", description: "MUST be explicitly true to proceed. Conversational 'yes' does not count." },
+          reason: { type: "string", description: "Why this file is being deleted — required, cannot be empty" },
         },
         required: ["file_id", "confirm", "reason"],
       },
@@ -887,4 +887,4 @@ function mimeIcon(mimeType) {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("GYBR Google Drive MCP Server v4.0 — Full Governance Edition running.");
+console.error("GYBR Google Drive MCP Server v4.1 — Full Governance Edition running.");
