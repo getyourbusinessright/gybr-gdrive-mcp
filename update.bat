@@ -25,6 +25,9 @@ echo.
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
 if %errorlevel% neq 0 goto download_error
 
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\auth.js" "%GITHUB_RAW%/auth.js"
+if %errorlevel% neq 0 goto download_error
+
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
