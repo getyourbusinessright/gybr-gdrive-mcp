@@ -34,6 +34,10 @@ Before installing you need to create OAuth credentials:
 5. Set audience to External, add your email as a test user
 6. Create OAuth 2.0 credentials → Desktop app
 7. Download the JSON file and rename it to `gcp-oauth.keys.json`
+⚠️ Windows users: When saving the downloaded JSON file, rename it to exactly:
+gcp-oauth.keys.json
+If using Notepad, make sure "Save as type" is set to "All Files" not "Text Documents" 
+or the extension will be doubled.
 
 ## Windows Installation
 1. Download `install.bat` from this repo
