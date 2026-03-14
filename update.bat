@@ -39,9 +39,15 @@ if %errorlevel% neq 0 goto download_error
 
 echo    Files updated!
 echo.
-echo Installing any new dependencies...
+echo Installing dependencies...
 cd /d "%SERVER_DIR%"
-call npm install --silent
+call npm install
+if %errorlevel% neq 0 (
+    echo.
+    echo ERROR: Dependency install failed.
+    pause
+    exit /b 1
+)
 echo    Done!
 echo.
 
