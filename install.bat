@@ -62,19 +62,19 @@ if exist "%SERVER_DIR%" (
 echo [4/6] Downloading server files from GitHub...
 set GITHUB_RAW=https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main
 
-curl -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\xlsx-builder.js" "%GITHUB_RAW%/xlsx-builder.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\xlsx-builder.js" "%GITHUB_RAW%/xlsx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\package.json" "%GITHUB_RAW%/package.json"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\package.json" "%GITHUB_RAW%/package.json"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\gybr-mcp-config.json" "%GITHUB_RAW%/gybr-mcp-config.json"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\gybr-mcp-config.json" "%GITHUB_RAW%/gybr-mcp-config.json"
 if %errorlevel% neq 0 goto download_error
 
 echo    All files downloaded!
