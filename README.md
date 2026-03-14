@@ -1,5 +1,5 @@
 # GYBR Google Drive MCP Server
-### A Windows-compatible Google Drive MCP server with full read/write access, built-in governance, action logging, draft mode, and auto-backup. Built by GYBR for Claude Desktop.
+### The only Windows and Mac compatible Google Drive MCP server with full read/write access, built-in governance, action logging, draft mode, and auto-backup. Built by GYBR for Claude Desktop.
 
 ## What This Does
 Connects Claude Desktop directly to your Google Drive with full read/write access and enterprise-grade governance controls.
@@ -17,28 +17,62 @@ Connects Claude Desktop directly to your Google Drive with full read/write acces
 - ✅ Rate limiting — max 10 writes per minute, max 3 deletes per session
 - ✅ Separate config file — change settings without touching code
 - ✅ One-click Windows installer
+- ✅ One-command Mac installer
 
 ## Requirements
-- Windows 10/11
 - Node.js (LTS) — https://nodejs.org
 - Claude Desktop — https://claude.ai/download
 - Google Account
+- Google Cloud Console OAuth credentials (see setup guide below)
 
-## Installation
+## Google Cloud Console Setup (One Time Only)
+Before installing you need to create OAuth credentials:
+1. Go to https://console.cloud.google.com
+2. Create a new project called `Claude MCP`
+3. Enable the Google Drive API, Google Docs API, Google Sheets API, and Google Slides API
+4. Go to APIs & Services → Credentials → Configure consent screen
+5. Set audience to External, add your email as a test user
+6. Create OAuth 2.0 credentials → Desktop app
+7. Download the JSON file and rename it to `gcp-oauth.keys.json`
+
+## Windows Installation
 1. Download `install.bat` from this repo
-2. Double-click it
-3. Follow the on-screen instructions
+2. Double-click it — installs everything automatically
+3. Copy `gcp-oauth.keys.json` to `C:\Users\YourName\`
+4. Double-click `auth.bat` — sign in with Google in the browser
+5. Restart Claude Desktop
+6. In a new chat type: `setup_ai_workspace`
+
+## Mac Installation
+Open Terminal and run:
+```
+curl -s --output install.sh https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main/install.sh && chmod +x install.sh && bash install.sh
+```
+Then:
+1. Copy `gcp-oauth.keys.json` to your home folder (`/Users/YourName/`)
+2. Run `auth.sh` — sign in with Google in the browser
+3. Restart Claude Desktop
+4. In a new chat type: `setup_ai_workspace`
 
 ## Updating
-1. Download `update.bat` from this repo
-2. Double-click it
-3. Restart Claude Desktop
+
+**Windows:** Download and double-click `update.bat`
+
+**Mac:** Run in Terminal:
+```
+curl -s --output update.sh https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main/update.sh && chmod +x update.sh && bash update.sh
+```
 
 ## Re-Authentication
 If your Google Drive access stops working:
-1. Download `auth.bat` from this repo
-2. Double-click it
-3. Sign in with Google in the browser that opens
+
+**Windows:** Download and double-click `auth.bat`
+
+**Mac:** Run `auth.sh`
+
+## Known Issues
+- v4.2: Delete confirmation is handled conversationally by Claude rather than as a hard tool-level block. File is never deleted without user confirmation — hard block coming in v4.3.
+- v4.2: Delete on uploaded .docx/.xlsx files sometimes fails — fix coming in v4.3.
 
 ## Built By
 [Get Your Business Right LLC (GYBR)](https://getyourbusinessright.com)
