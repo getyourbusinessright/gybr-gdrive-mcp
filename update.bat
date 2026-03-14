@@ -22,16 +22,16 @@ if not exist "%SERVER_DIR%" (
 echo Downloading latest files from GitHub...
 echo.
 
-curl -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\xlsx-builder.js" "%GITHUB_RAW%/xlsx-builder.js"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\xlsx-builder.js" "%GITHUB_RAW%/xlsx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
-curl -s -o "%SERVER_DIR%\package.json" "%GITHUB_RAW%/package.json"
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\package.json" "%GITHUB_RAW%/package.json"
 if %errorlevel% neq 0 goto download_error
 
 echo    Files updated!
