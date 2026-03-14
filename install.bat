@@ -65,6 +65,9 @@ set GITHUB_RAW=https://raw.githubusercontent.com/getyourbusinessright/gybr-gdriv
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
 if %errorlevel% neq 0 goto download_error
 
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\auth.js" "%GITHUB_RAW%/auth.js"
+if %errorlevel% neq 0 goto download_error
+
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\docx-builder.js" "%GITHUB_RAW%/docx-builder.js"
 if %errorlevel% neq 0 goto download_error
 
@@ -142,24 +145,23 @@ echo ============================================================
 echo.
 echo Next steps:
 echo.
-echo STEP 1: Copy your credentials files to:
+echo STEP 1: Copy your gcp-oauth.keys.json file to:
 echo         %USERPROFILE%\
 echo.
-echo         You need these 2 files from your existing installation:
-echo         - gcp-oauth.keys.json
-echo         - .gdrive-server-credentials.json
+echo STEP 2: Run auth.bat to authenticate with Google
+echo         A browser will open — sign in and click Allow
 echo.
-echo STEP 2: Restart Claude Desktop
+echo STEP 3: Restart Claude Desktop
 echo         Right-click the Claude icon in your system tray
 echo         and select Quit, then reopen it.
 echo.
-echo STEP 3: In a new Claude Desktop chat, type:
+echo STEP 4: In a new Claude Desktop chat, type:
 echo         setup_ai_workspace
 echo.
 echo ============================================================
 echo.
 
-:: Open the credentials destination folder
+:: Open the user folder so they can drop in credentials
 explorer "%USERPROFILE%"
 
 pause
