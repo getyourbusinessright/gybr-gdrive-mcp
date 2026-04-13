@@ -17,9 +17,12 @@ echo   - After a long period of inactivity
 echo.
 pause
 
-set OAUTH_PATH=%USERPROFILE%\gcp-oauth.keys.json
-set CREDS_PATH=%USERPROFILE%\.gdrive-server-credentials.json
-set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v4
+set GYBR_DIR=%USERPROFILE%\gybr-mcp
+if not exist "%GYBR_DIR%" mkdir "%GYBR_DIR%"
+
+set OAUTH_PATH=%GYBR_DIR%\gcp-oauth.keys.json
+set CREDS_PATH=%GYBR_DIR%\.gdrive-server-credentials.json
+set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v5
 
 :: Check server is installed
 if not exist "%SERVER_DIR%\auth.js" (
@@ -36,8 +39,8 @@ if not exist "%OAUTH_PATH%" (
     echo.
     echo ERROR: gcp-oauth.keys.json not found.
     echo.
-    echo Please make sure gcp-oauth.keys.json is in:
-    echo %USERPROFILE%\
+    echo Please place gcp-oauth.keys.json in:
+    echo %GYBR_DIR%\
     echo.
     pause
     exit /b 1

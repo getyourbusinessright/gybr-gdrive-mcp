@@ -3,7 +3,6 @@
 /**
  * GYBR Google Drive MCP Server - Auth Flow
  * Self-contained authentication with full Drive access scope
- * No dependency on deprecated @modelcontextprotocol/server-gdrive
  */
 
 import { google } from "googleapis";
@@ -12,15 +11,18 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 
-// ─── Config ───────────────────────────────────────────────────────────────────
+// ─── GYBR Data Directory (Fix 26) ─────────────────────────────────────────────
+const GYBR_MCP_DIR = path.join(os.homedir(), "gybr-mcp");
+if (!fs.existsSync(GYBR_MCP_DIR)) fs.mkdirSync(GYBR_MCP_DIR, { recursive: true });
 
+// ─── Config ───────────────────────────────────────────────────────────────────
 const OAUTH_PATH =
   process.env.GDRIVE_OAUTH_PATH ||
-  path.join(os.homedir(), "gcp-oauth.keys.json");
+  path.join(GYBR_MCP_DIR, "gcp-oauth.keys.json");
 
 const CREDENTIALS_PATH =
   process.env.GDRIVE_CREDENTIALS_PATH ||
-  path.join(os.homedir(), ".gdrive-server-credentials.json");
+  path.join(GYBR_MCP_DIR, ".gdrive-server-credentials.json");
 
 // Full read/write access scope
 const SCOPES = [
@@ -31,17 +33,15 @@ const SCOPES = [
 ];
 
 // ─── Auth Flow ────────────────────────────────────────────────────────────────
-
 async function runAuth() {
   console.log("\n============================================================");
   console.log("  GYBR Google Drive MCP Server - Authentication");
   console.log("  Get Your Business Right LLC");
   console.log("============================================================\n");
 
-  // Check OAuth keys file exists
   if (!fs.existsSync(OAUTH_PATH)) {
     console.error(`ERROR: OAuth keys file not found at: ${OAUTH_PATH}`);
-    console.error(`\nPlease make sure gcp-oauth.keys.json is in: ${os.homedir()}`);
+    console.error(`\nPlease place gcp-oauth.keys.json in: ${GYBR_MCP_DIR}`);
     process.exit(1);
   }
 
@@ -55,7 +55,6 @@ async function runAuth() {
       scopes: SCOPES,
     });
 
-    // Save credentials
     fs.writeFileSync(
       CREDENTIALS_PATH,
       JSON.stringify(authClient.credentials, null, 2)
