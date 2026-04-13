@@ -3,13 +3,13 @@
 echo ""
 echo "============================================================"
 echo "  GYBR Google Drive MCP Server - Mac Installer"
-echo "  Version 4.1 - Governance Edition"
+echo "  Version 5.1 - Governance Edition"
 echo "  Get Your Business Right LLC"
 echo "============================================================"
 echo ""
 
 # ── Check Node.js ─────────────────────────────────────────────
-echo "[1/6] Checking Node.js installation..."
+echo "[1/7] Checking Node.js installation..."
 if ! command -v node &> /dev/null; then
     echo ""
     echo "ERROR: Node.js is not installed."
@@ -27,7 +27,7 @@ fi
 echo "   Node.js found! $(node --version)"
 
 # ── Check Claude Desktop ──────────────────────────────────────
-echo "[2/6] Checking Claude Desktop..."
+echo "[2/7] Checking Claude Desktop..."
 CLAUDE_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 if [ ! -f "$CLAUDE_CONFIG" ]; then
     echo ""
@@ -44,9 +44,15 @@ if [ ! -f "$CLAUDE_CONFIG" ]; then
 fi
 echo "   Claude Desktop found!"
 
+# ── Create GYBR data folder ───────────────────────────────────
+echo "[3/7] Creating GYBR data folder..."
+GYBR_DIR="$HOME/gybr-mcp"
+mkdir -p "$GYBR_DIR"
+echo "   GYBR data folder: $GYBR_DIR"
+
 # ── Create server folder ──────────────────────────────────────
-echo "[3/6] Creating server folder..."
-SERVER_DIR="$HOME/gdrive-mcp-server-v4"
+echo "[4/7] Creating server folder..."
+SERVER_DIR="$HOME/gdrive-mcp-server-v5"
 if [ -d "$SERVER_DIR" ]; then
     echo "   Folder already exists - updating files..."
 else
@@ -55,7 +61,7 @@ else
 fi
 
 # ── Download files from GitHub ────────────────────────────────
-echo "[4/6] Downloading server files from GitHub..."
+echo "[5/7] Downloading server files from GitHub..."
 GITHUB_RAW="https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main"
 
 curl -s -o "$SERVER_DIR/index.js" "$GITHUB_RAW/index.js" || { echo "ERROR: Download failed. Check your internet connection."; exit 1; }
@@ -68,7 +74,7 @@ curl -s -o "$SERVER_DIR/gybr-mcp-config.json" "$GITHUB_RAW/gybr-mcp-config.json"
 echo "   All files downloaded!"
 
 # ── Install dependencies ──────────────────────────────────────
-echo "[5/6] Installing dependencies (this may take a minute)..."
+echo "[6/7] Installing dependencies (this may take a minute)..."
 cd "$SERVER_DIR"
 npm install --silent
 if [ $? -ne 0 ]; then
@@ -80,10 +86,10 @@ fi
 echo "   Dependencies installed!"
 
 # ── Update Claude Desktop config ─────────────────────────────
-echo "[6/6] Updating Claude Desktop configuration..."
+echo "[7/7] Updating Claude Desktop configuration..."
 
 SERVER_PATH="$SERVER_DIR/index.js"
-CREDS_PATH="$HOME/.gdrive-server-credentials.json"
+CREDS_PATH="$GYBR_DIR/.gdrive-server-credentials.json"
 
 cat > "$CLAUDE_CONFIG" << EOF
 {
@@ -114,22 +120,20 @@ echo "============================================================"
 echo ""
 echo "Next steps:"
 echo ""
-echo "STEP 1: Copy your credentials files to your home folder:"
-echo "        $HOME/"
+echo "STEP 1: Copy gcp-oauth.keys.json to the GYBR data folder:"
+echo "        $GYBR_DIR/"
 echo ""
-echo "        You need these 2 files:"
-echo "        - gcp-oauth.keys.json"
-echo "        - .gdrive-server-credentials.json"
+echo "STEP 2: Run auth.sh to sign in with Google"
+echo "        A browser will open — click Allow"
 echo ""
-echo "STEP 2: Restart Claude Desktop"
-echo "        Quit Claude Desktop from the menu bar"
-echo "        then reopen it."
+echo "STEP 3: Restart Claude Desktop"
+echo "        Quit from the menu bar then reopen."
 echo ""
-echo "STEP 3: In a new Claude Desktop chat, type:"
+echo "STEP 4: In a new Claude Desktop chat, type:"
 echo "        setup_ai_workspace"
 echo ""
+echo "All MCP data files are stored in: $GYBR_DIR"
 echo "============================================================"
 echo ""
 
-# Open home folder so user can drop in credentials
-open "$HOME"
+open "$GYBR_DIR"

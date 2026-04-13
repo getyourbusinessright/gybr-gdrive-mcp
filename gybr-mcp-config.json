@@ -41,5 +41,6 @@
     "aiPrefix": "AI",
     "includeDate": true,
     "format": "AI_YYYYMMDD_{title}"
-  }
+  },
+  "maxReadChars": 50000
 }

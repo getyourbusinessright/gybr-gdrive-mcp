@@ -16,9 +16,12 @@ echo "  - After a long period of inactivity"
 echo ""
 read -p "Press Enter to continue..."
 
-OAUTH_PATH="$HOME/gcp-oauth.keys.json"
-CREDS_PATH="$HOME/.gdrive-server-credentials.json"
-SERVER_DIR="$HOME/gdrive-mcp-server-v4"
+GYBR_DIR="$HOME/gybr-mcp"
+mkdir -p "$GYBR_DIR"
+
+OAUTH_PATH="$GYBR_DIR/gcp-oauth.keys.json"
+CREDS_PATH="$GYBR_DIR/.gdrive-server-credentials.json"
+SERVER_DIR="$HOME/gdrive-mcp-server-v5"
 
 if [ ! -f "$SERVER_DIR/auth.js" ]; then
     echo ""
@@ -30,10 +33,10 @@ fi
 
 if [ ! -f "$OAUTH_PATH" ]; then
     echo ""
-    echo "ERROR: gcp-oauth.keys.json not found in $HOME/"
+    echo "ERROR: gcp-oauth.keys.json not found."
     echo ""
-    echo "Please make sure gcp-oauth.keys.json is in:"
-    echo "$HOME/"
+    echo "Please place gcp-oauth.keys.json in:"
+    echo "$GYBR_DIR/"
     echo ""
     exit 1
 fi

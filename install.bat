@@ -4,13 +4,13 @@ setlocal EnableDelayedExpansion
 echo.
 echo ============================================================
 echo   GYBR Google Drive MCP Server - Windows Installer
-echo   Version 4.0 - Governance Edition
+echo   Version 5.1 - Governance Edition
 echo   Get Your Business Right LLC
 echo ============================================================
 echo.
 
 :: ── Check Node.js ────────────────────────────────────────────
-echo [1/6] Checking Node.js installation...
+echo [1/7] Checking Node.js installation...
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
@@ -27,10 +27,10 @@ if %errorlevel% neq 0 (
     pause
     exit /b 1
 )
-echo    Node.js found! 
+echo    Node.js found!
 
 :: ── Check Claude Desktop ──────────────────────────────────────
-echo [2/6] Checking Claude Desktop...
+echo [2/7] Checking Claude Desktop...
 set CLAUDE_CONFIG=%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Roaming\Claude\claude_desktop_config.json
 if not exist "%CLAUDE_CONFIG%" (
     echo.
@@ -48,9 +48,15 @@ if not exist "%CLAUDE_CONFIG%" (
 )
 echo    Claude Desktop found!
 
+:: ── Create GYBR data folder ──────────────────────────────────
+echo [3/7] Creating GYBR data folder...
+set GYBR_DIR=%USERPROFILE%\gybr-mcp
+if not exist "%GYBR_DIR%" mkdir "%GYBR_DIR%"
+echo    GYBR data folder: %GYBR_DIR%
+
 :: ── Create server folder ──────────────────────────────────────
-echo [3/6] Creating server folder...
-set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v4
+echo [4/7] Creating server folder...
+set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v5
 if exist "%SERVER_DIR%" (
     echo    Folder already exists - updating files...
 ) else (
@@ -59,7 +65,7 @@ if exist "%SERVER_DIR%" (
 )
 
 :: ── Download files from GitHub ────────────────────────────────
-echo [4/6] Downloading server files from GitHub...
+echo [5/7] Downloading server files from GitHub...
 set GITHUB_RAW=https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main
 
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\index.js" "%GITHUB_RAW%/index.js"
@@ -92,7 +98,7 @@ exit /b 1
 
 :: ── Install dependencies ──────────────────────────────────────
 :install_deps
-echo [5/6] Installing dependencies (this may take a minute)...
+echo [6/7] Installing dependencies (this may take a minute)...
 cd /d "%SERVER_DIR%"
 call npm install --silent
 if %errorlevel% neq 0 (
@@ -105,17 +111,14 @@ if %errorlevel% neq 0 (
 echo    Dependencies installed!
 
 :: ── Update Claude Desktop config ─────────────────────────────
-echo [6/6] Updating Claude Desktop configuration...
+echo [7/7] Updating Claude Desktop configuration...
 
-:: Build the config with proper paths
 set SERVER_PATH=%SERVER_DIR%\index.js
-set CREDS_PATH=%USERPROFILE%\.gdrive-server-credentials.json
+set CREDS_PATH=%GYBR_DIR%\.gdrive-server-credentials.json
 
-:: Replace backslashes with double backslashes for JSON
 set SERVER_PATH_JSON=%SERVER_PATH:\=\\%
 set CREDS_PATH_JSON=%CREDS_PATH:\=\\%
 
-:: Write new config
 (
 echo {
 echo   "mcpServers": {
@@ -145,23 +148,23 @@ echo ============================================================
 echo.
 echo Next steps:
 echo.
-echo STEP 1: Copy your gcp-oauth.keys.json file to:
-echo         %USERPROFILE%\
+echo STEP 1: Copy gcp-oauth.keys.json to the GYBR data folder:
+echo         %GYBR_DIR%\
 echo.
 echo STEP 2: Run auth.bat to authenticate with Google
 echo         A browser will open — sign in and click Allow
 echo.
 echo STEP 3: Restart Claude Desktop
-echo         Right-click the Claude icon in your system tray
-echo         and select Quit, then reopen it.
+echo         Right-click Claude in the system tray, select Quit,
+echo         then reopen it.
 echo.
 echo STEP 4: In a new Claude Desktop chat, type:
 echo         setup_ai_workspace
 echo.
+echo All MCP data files are stored in: %GYBR_DIR%
 echo ============================================================
 echo.
 
-:: Open the user folder so they can drop in credentials
-explorer "%USERPROFILE%"
+explorer "%GYBR_DIR%"
 
 pause
