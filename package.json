@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
-    "@google-cloud/local-auth": "^3.0.0",
     "googleapis": "^144.0.0",
     "docx": "^8.5.0",
     "exceljs": "^4.4.0",
