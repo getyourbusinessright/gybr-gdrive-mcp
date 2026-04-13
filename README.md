@@ -5,22 +5,36 @@
 Connects Claude Desktop directly to your Google Drive with full read/write access and enterprise-grade governance controls.
 
 ## Features
-- ✅ Full read access across all of Google Drive including shared files
-- ✅ Create Google Docs, Sheets, Slides, folders
-- ✅ Upload real .docx, .xlsx, and .pdf files
-- ✅ Read .docx and .xlsx files directly from Drive
-- ✅ Edit existing files anywhere in Drive
-- ✅ Draft mode ON by default — creates revision copies instead of editing originals
-- ✅ Auto-backup to AI-Archive before any destructive edit
-- ✅ Action log spreadsheet tracking every AI action with before/after snapshots
-- ✅ AI_YYYYMMDD_ naming convention on all created files
-- ✅ Delete protection with confirmation required (soft delete / Google Trash only)
-- ✅ Rate limiting — max 10 writes per minute, max 3 deletes per session
-- ✅ Rate limit persists across server restarts
-- ✅ Separate config file — change settings without touching code
-- ✅ One-click Windows installer
-- ✅ One-command Mac installer
-- ✅ All data files stored in a single dedicated folder
+✅ Full read access across all of Google Drive including shared files
+✅ Create Google Docs, Sheets, Slides, folders
+✅ Upload real .docx, .xlsx, and .pdf files
+✅ Read .docx and .xlsx files directly from Drive
+✅ Edit existing files anywhere in Drive
+✅ Draft mode ON by default — creates revision copies instead of editing originals
+✅ Auto-backup to AI-Archive before any destructive edit
+✅ Action log spreadsheet tracking every AI action with before/after snapshots
+✅ AI_YYYYMMDD_ naming convention on all created files
+✅ Delete protection with confirmation required (soft delete / Google Trash only)
+✅ Rate limiting — max 10 writes per minute, max 3 deletes per session
+✅ Rate limit persists across server restarts
+✅ Separate config file — change settings without touching code
+✅ One-click Windows installer
+✅ One command Mac installer
+✅ All data files stored in a single dedicated 
+✅ Tab visibility on every Google Sheet read — see all tabs before touching anything
+✅ Read any specific tab by name
+✅ Tab validation before every write — never writes to wrong tab
+✅ Append rows without overwriting existing data
+✅ Find columns by header name
+✅ Insert content under specific Doc headings
+✅ Create new tabs in sheets
+✅ Duplicate detection before appending rows
+✅ Doc read modes — full, summary, headings only, section
+✅ Dry run mode — preview any destructive action before executing
+✅ Ambiguity detection — never silently picks the wrong target
+✅ Freshness check before writes — warns if file changed since last read
+✅ Safe pagination for large files
+✅ CSRF protection on OAuth flow
 
 ## Data Folder Location
 All MCP data files are stored in a single dedicated folder:
@@ -89,7 +103,7 @@ Updates only replace server files — you do NOT need to re-authenticate after u
 ```
 curl -s --output update.sh https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main/update.sh && chmod +x update.sh && bash update.sh
 ```
-After updating — run `npm install` in the server folder to pick up new dependencies, then restart Claude Desktop.
+**After updating** — run `npm install` in the server folder to pick up any new dependencies (v5.1 adds mammoth for .docx reading), then restart Claude Desktop.
 
 ## Re-Authentication
 If your Google Drive access stops working:
