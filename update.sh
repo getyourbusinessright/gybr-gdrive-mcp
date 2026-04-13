@@ -7,7 +7,7 @@ echo "  Get Your Business Right LLC"
 echo "============================================================"
 echo ""
 
-SERVER_DIR="$HOME/gdrive-mcp-server-v4"
+SERVER_DIR="$HOME/gdrive-mcp-server-v5"
 GITHUB_RAW="https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main"
 
 if [ ! -d "$SERVER_DIR" ]; then

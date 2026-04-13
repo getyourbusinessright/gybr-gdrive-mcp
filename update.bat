@@ -8,7 +8,7 @@ echo   Get Your Business Right LLC
 echo ============================================================
 echo.
 
-set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v4
+set SERVER_DIR=%USERPROFILE%\gdrive-mcp-server-v5
 set GITHUB_RAW=https://raw.githubusercontent.com/getyourbusinessright/gybr-gdrive-mcp/main
 
 :: ── Check server folder exists ────────────────────────────────
