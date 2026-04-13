@@ -354,6 +354,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: "insert_under_heading",
+      description: "STANDARD EDIT — Insert content immediately after a named heading in a Google Doc without touching anything else. If multiple headings match, returns all matches with position info and requires heading_index to disambiguate. Supports dry_run.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          file_id: { type: "string", description: "Google Doc file ID" },
+          heading_text: { type: "string", description: "Text of the heading to insert under (case-insensitive substring match, styled headings only; falls back to plain text if none found)" },
+          content: { type: "string", description: "Content to insert immediately after the heading" },
+          heading_index: { type: "number", description: "0-based index to disambiguate when multiple headings match (required if ambiguous)" },
+          dry_run: { type: "boolean", description: "Preview insertion point without making changes (default false)" },
+        },
+        required: ["file_id", "heading_text", "content"],
+      },
+    },
+    {
       name: "overwrite_document",
       description: "DESTRUCTIVE EDIT — Replaces ALL content in a Google Doc. Requires confirm=true + reason. Auto-backup created in AI-Archive first.",
       inputSchema: {
@@ -970,6 +985,84 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           tabOrSection: sheetTitle,
         });
         return text(`✅ Row appended to "${meta.data.name}" → ${sheetTitle}.`);
+      }
+
+      // ── INSERT UNDER HEADING (Fix 8) ──
+      case "insert_under_heading": {
+        const { file_id, heading_text, content, heading_index, dry_run } = args;
+
+        const [meta, doc] = await Promise.all([
+          withAuthRetry(() => drive.files.get({ fileId: file_id, fields: "name" })),
+          withAuthRetry(() => docs.documents.get({ documentId: file_id })),
+        ]);
+        const bodyContent = doc.data.body.content || [];
+
+        // Collect styled-heading matches first
+        const headingMatches = [];
+        for (const el of bodyContent) {
+          const paraStyle = el.paragraph?.paragraphStyle?.namedStyleType || "";
+          if (!paraStyle.startsWith("HEADING")) continue;
+          const elText = (el.paragraph.elements || []).map(e => e.textRun?.content || "").join("").trim();
+          if (elText.toLowerCase().includes(heading_text.toLowerCase())) {
+            headingMatches.push({ text: elText, style: paraStyle, startIndex: el.startIndex, endIndex: el.endIndex });
+          }
+        }
+
+        // Fallback to plain body paragraphs only if no styled headings matched
+        let matches = headingMatches;
+        let usedFallback = false;
+        if (matches.length === 0) {
+          usedFallback = true;
+          for (const el of bodyContent) {
+            if (!el.paragraph) continue;
+            const elText = (el.paragraph.elements || []).map(e => e.textRun?.content || "").join("").trim();
+            if (elText.toLowerCase().includes(heading_text.toLowerCase())) {
+              matches.push({
+                text: elText,
+                style: el.paragraph.paragraphStyle?.namedStyleType || "NORMAL_TEXT",
+                startIndex: el.startIndex,
+                endIndex: el.endIndex,
+              });
+            }
+          }
+        }
+
+        if (matches.length === 0) {
+          return text(`❌ No heading matching "${heading_text}" found in "${meta.data.name}".\n\nUse read_file to see document structure.`);
+        }
+
+        // Ambiguity: multiple matches, no heading_index supplied
+        if (matches.length > 1 && heading_index === undefined) {
+          const list = matches.map((m, i) =>
+            `  [${i}] "${m.text}" (${m.style}, startIndex: ${m.startIndex})`
+          ).join("\n");
+          return text(`⚠️ AMBIGUOUS — ${matches.length} headings match "${heading_text}":\n\n${list}\n\nPass heading_index: <number> to specify which one.`);
+        }
+
+        const idx = heading_index ?? 0;
+        if (idx < 0 || idx >= matches.length) {
+          return text(`❌ heading_index ${idx} out of range. Valid range: 0–${matches.length - 1}.`);
+        }
+        const target = matches[idx];
+        const insertAt = target.endIndex; // right after the heading's trailing \n
+
+        if (dry_run) {
+          const fallbackNote = usedFallback ? "\n⚠️ Matched as plain text (no styled heading found)." : "";
+          return text(`🔍 DRY RUN — insert_under_heading\n\nFile: "${meta.data.name}"\nHeading: "${target.text}" (${target.style})\nInsert at index: ${insertAt}${fallbackNote}\n\nContent to insert:\n---\n${content}\n---\n\nNo changes made. Remove dry_run: true to execute.`);
+        }
+
+        checkRateLimit();
+        const insertText = content.endsWith("\n") ? content : content + "\n";
+        await withAuthRetry(() => docs.documents.batchUpdate({
+          documentId: file_id,
+          requestBody: { requests: [{ insertText: { location: { index: insertAt }, text: insertText } }] },
+        }));
+
+        await logAction("EDIT_INSERT", meta.data.name, file_id, "", `Inserted under heading "${target.text}"`, "success", {
+          afterSnapshot: content.slice(0, 200),
+          tabOrSection: target.text,
+        });
+        return text(`✅ Content inserted after "${target.text}" in "${meta.data.name}".`);
       }
 
       // ── OVERWRITE DOCUMENT (Fix 11, 16, 21) ──
