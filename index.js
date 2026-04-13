@@ -469,3 +469,505 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
   ],
 }));
+
+// ─── Handlers Part A: setup → append_row ─────────────────────────────────────
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  try {
+    switch (name) {
+
+      // ── SETUP WORKSPACE ──
+      case "setup_ai_workspace": {
+        const cache = loadCache();
+        if (cache.workspaceId) {
+          return text(`✅ AI Workspace already configured.\n\n📁 GYBR-AI-Workspace (${cache.workspaceId})\n   📁 _AI-Created (${cache.createdId})\n   📁 _AI-Drafts (${cache.draftsId})\n   📁 _AI-Logs (${cache.logsId})\n   📁 _AI-Archive (${cache.archiveId})\n   📁 Exports (${cache.exportsId})\n   📊 Action Log (${cache.logSheetId})`);
+        }
+        const wsId = await withAuthRetry(() => createFolder("GYBR-AI-Workspace", null));
+        const createdId = await withAuthRetry(() => createFolder("_AI-Created", wsId));
+        const draftsId  = await withAuthRetry(() => createFolder("_AI-Drafts", wsId));
+        const logsId    = await withAuthRetry(() => createFolder("_AI-Logs", wsId));
+        const archiveId = await withAuthRetry(() => createFolder("_AI-Archive", wsId));
+        const exportsId = await withAuthRetry(() => createFolder("Exports", wsId));
+
+        const logSheet = await withAuthRetry(() => sheets.spreadsheets.create({
+          requestBody: { properties: { title: "GYBR-AI-Action-Log" } }
+        }));
+        const logSheetId = logSheet.data.spreadsheetId;
+        await withAuthRetry(() => moveToFolder(logSheetId, logsId));
+        // Fix 21: 11-column header
+        await withAuthRetry(() => sheets.spreadsheets.values.update({
+          spreadsheetId: logSheetId,
+          range: "A1:K1",
+          valueInputOption: "RAW",
+          requestBody: { values: [["Timestamp","Action","File Name","File ID","Folder","Details","Status","Before Snapshot","After Snapshot","Tab/Section","Retry Used"]] },
+        }));
+
+        saveCache({ workspaceId: wsId, createdId, draftsId, logsId, archiveId, exportsId, logSheetId });
+        return text(`✅ AI Workspace created!\n\n📁 GYBR-AI-Workspace\n   📁 _AI-Created\n   📁 _AI-Drafts\n   📁 _AI-Logs\n   📁 _AI-Archive\n   📁 Exports\n   📊 GYBR-AI-Action-Log\n\nAll new files go to _AI-Created by default.\nEvery action is logged automatically.\nDestructive edits + deletes require confirmation.`);
+      }
+
+      // ── GET WORKSPACE INFO ──
+      case "get_workspace_info": {
+        const cache = loadCache();
+        const draftMode = getCurrentDraftMode();
+        if (!cache.workspaceId) return text(`⚠️ Workspace not set up. Run setup_ai_workspace first.`);
+        return text(`📁 GYBR-AI-Workspace\n\nFolder IDs:\n  _AI-Created: ${cache.createdId}\n  _AI-Drafts: ${cache.draftsId}\n  _AI-Logs: ${cache.logsId}\n  _AI-Archive: ${cache.archiveId}\n  Exports: ${cache.exportsId}\n  Action Log: ${cache.logSheetId}\n\nCurrent Settings:\n  Draft Mode: ${draftMode.toUpperCase()}\n  Auto Backup: ${config.backup.autoBackupBeforeDestructiveEdit}\n  Confirm Overwrite: ${config.permissions.requireConfirmForOverwrite}\n  Confirm Delete: ${config.permissions.requireConfirmForDelete}\n  Max Writes/Min: ${config.rateLimits.maxWritesPerMinute}\n  Max Read Chars: ${MAX_READ_CHARS}`);
+      }
+
+      // ── SET DRAFT MODE ──
+      case "set_draft_mode": {
+        if (!["draft", "direct"].includes(args.mode)) return text(`❌ Invalid mode. Use 'draft' or 'direct'.`);
+        sessionDraftMode = args.mode;
+        return text(`✅ Draft mode set to: ${args.mode.toUpperCase()} for this session.\n\n${args.mode === "draft" ? "Claude will create revision copies instead of editing real files directly." : "Claude will edit real files directly. Destructive edits still require confirmation."}`);
+      }
+
+      // ── GET ACTION LOG ──
+      case "get_action_log": {
+        const cache = loadCache();
+        if (!cache.logSheetId) return text(`⚠️ Action log not found. Run setup_ai_workspace first.`);
+        const res = await withAuthRetry(() => sheets.spreadsheets.values.get({
+          spreadsheetId: cache.logSheetId, range: "A1:K1000"
+        }));
+        const rows = res.data.values || [];
+        if (rows.length <= 1) return text("No actions logged yet.");
+        const limit = args.limit || 20;
+        const recent = rows.slice(1).slice(-limit);
+        return text(`📋 Last ${recent.length} logged actions:\n\n` + recent.map(r =>
+          `[${r[0]}] ${r[1]} — ${r[2]} | ${r[6] || "success"}`
+        ).join("\n"));
+      }
+
+      // ── SEARCH FILES ──
+      case "search_files": {
+        // Fix 9: sanitize query to prevent injection
+        const safeQuery = (args.query || "").replace(/'/g, "\\'");
+        const includeShared = args.include_shared !== false;
+        const q = includeShared
+          ? `(name contains '${safeQuery}' or fullText contains '${safeQuery}') and trashed = false`
+          : `(name contains '${safeQuery}' or fullText contains '${safeQuery}') and trashed = false and 'me' in owners`;
+        const res = await withAuthRetry(() => drive.files.list({
+          q,
+          pageSize: args.max_results || 10,
+          fields: "files(id, name, mimeType, modifiedTime, shared)",
+          corpora: "allDrives",
+          includeItemsFromAllDrives: true,
+          supportsAllDrives: true,
+        }));
+        const files = res.data.files || [];
+        if (files.length === 0) return text("No files found.");
+        return text(files.map(f =>
+          `${mimeIcon(f.mimeType)} ${f.name}${f.shared ? " [shared]" : ""}\n   ID: ${f.id}\n   Modified: ${f.modifiedTime}`
+        ).join("\n\n"));
+      }
+
+      // ── LIST FOLDER ──
+      case "list_folder": {
+        const folderId = await resolveShortcut(args.folder_id);
+        const res = await withAuthRetry(() => drive.files.list({
+          q: `'${folderId}' in parents and trashed = false`,
+          pageSize: 100,
+          fields: "files(id, name, mimeType, modifiedTime)",
+          orderBy: "folder,name",
+        }));
+        const files = res.data.files || [];
+        if (files.length === 0) return text("Folder is empty.");
+        return text(files.map(f => `${mimeIcon(f.mimeType)} ${f.name}\n   ID: ${f.id}`).join("\n"));
+      }
+
+      // ── READ FILE (Fixes 1, 2, 4, 10, 13, 16, 17, 18, 19, 20, 22, 23, 24, 25) ──
+      case "read_file": {
+        const { file_id, tab_name, section_name, start_row, end_row, include_hidden_tabs, confirm_stale } = args;
+        const meta = await withAuthRetry(() => drive.files.get({
+          fileId: file_id,
+          fields: "name, mimeType, modifiedTime, webViewLink",
+        }));
+        const { name: title, mimeType, modifiedTime, webViewLink: url } = meta.data;
+
+        // Fix 22: freshness check
+        const fKey = freshnessKey(file_id, tab_name || section_name || "");
+        const warnings = [];
+        if (lastReadTime.has(fKey)) {
+          try {
+            const fm = await withAuthRetry(() => drive.files.get({ fileId: file_id, fields: "modifiedTime" }));
+            if (new Date(fm.data.modifiedTime).getTime() > lastReadTime.get(fKey)) {
+              if (!confirm_stale) {
+                warnings.push(`STALE: File modified at ${fm.data.modifiedTime} since last read. Pass confirm_stale: true to suppress this warning.`);
+              }
+            }
+          } catch {}
+        }
+
+        // ── Google Docs ──
+        if (mimeType === "application/vnd.google-apps.document") {
+          const doc = await withAuthRetry(() => docs.documents.get({ documentId: file_id }));
+          let content;
+          if (section_name) {
+            // Fix 13: read specific heading section
+            const bodyContent = doc.data.body.content;
+            let inSection = false, found = false;
+            const sectionLines = [];
+            for (const el of bodyContent) {
+              const paraStyle = el.paragraph?.paragraphStyle?.namedStyleType || "";
+              const elText = (el.paragraph?.elements || []).map(e => e.textRun?.content || "").join("").trim();
+              if (paraStyle.startsWith("HEADING") && elText) {
+                if (inSection) break;
+                if (elText.toLowerCase().includes(section_name.toLowerCase())) { inSection = true; found = true; }
+              } else if (inSection) {
+                sectionLines.push((el.paragraph?.elements || []).map(e => e.textRun?.content || "").join(""));
+              }
+            }
+            if (!found) {
+              const headings = bodyContent
+                .filter(el => el.paragraph?.paragraphStyle?.namedStyleType?.startsWith("HEADING"))
+                .map(el => (el.paragraph.elements || []).map(e => e.textRun?.content || "").join("").trim())
+                .filter(Boolean);
+              content = `Section "${section_name}" not found.\nAvailable headings:\n${headings.map(h => `  - ${h}`).join("\n")}`;
+            } else {
+              content = sectionLines.join("");
+            }
+          } else {
+            content = (doc.data.body.content || [])
+              .map(el => (el.paragraph?.elements || []).map(e => e.textRun?.content || "").join("") || "")
+              .join("");
+          }
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+          lastReadTime.set(fKey, Date.now());
+          await logAction("READ", title, file_id, "", section_name ? `section:${section_name}` : "full", "success", { tabOrSection: section_name || "" });
+          return buildFileResponse({ file_id, title, mime_type: mimeType, url, last_modified: modifiedTime, section_name, content, warnings, truncated });
+        }
+
+        // ── Google Sheets ──
+        if (mimeType === "application/vnd.google-apps.spreadsheet") {
+          // Fix 25: dynamic range from gridProperties
+          const spreadsheet = await withAuthRetry(() => sheets.spreadsheets.get({
+            spreadsheetId: file_id,
+            fields: "sheets(properties(sheetId,title,hidden,gridProperties))",
+          }));
+          const allSheets = spreadsheet.data.sheets || [];
+          const visibleSheets = allSheets.filter(s => !s.properties.hidden);
+          const sheetList = (include_hidden_tabs ? allSheets : visibleSheets).map(s => s.properties.title);
+
+          // Fix 18: tab resolution with ambiguity detection
+          let targetSheet;
+          if (tab_name) {
+            const matches = allSheets.filter(s => s.properties.title.toLowerCase() === tab_name.toLowerCase());
+            if (matches.length === 0) {
+              lastReadTime.set(fKey, Date.now());
+              return buildFileResponse({
+                file_id, title, mime_type: mimeType, url, last_modified: modifiedTime,
+                content: `Tab "${tab_name}" not found.\nAvailable tabs: ${sheetList.join(", ")}`,
+                warnings, truncated: false,
+              });
+            }
+            targetSheet = matches[0];
+          } else {
+            targetSheet = visibleSheets[0] || allSheets[0];
+          }
+
+          const sheetTitle = targetSheet.properties.title;
+          const grid = targetSheet.properties.gridProperties;
+          const colCount = Math.min(grid?.columnCount || 26, 52);
+          const lastCol = colIndexToLetter(colCount);
+
+          // Fetch header row
+          const headerRes = await withAuthRetry(() => sheets.spreadsheets.values.get({
+            spreadsheetId: file_id,
+            range: `${sheetTitle}!A1:${lastCol}1`,
+          }));
+          const headers = headerRes.data.values?.[0] || [];
+
+          // Fix 19: pagination with start_row/end_row
+          const dataStart = (start_row || 1) + 1;
+          const dataEnd = end_row ? end_row + 1 : (grid?.rowCount || 1000);
+          const dataRes = await withAuthRetry(() => sheets.spreadsheets.values.get({
+            spreadsheetId: file_id,
+            range: `${sheetTitle}!A${dataStart}:${lastCol}${dataEnd}`,
+          }));
+          const rows = dataRes.data.values || [];
+
+          let content = `Tabs: ${sheetList.join(", ")}\nReading tab: ${sheetTitle}\n\n${headers.join("\t")}\n${rows.map(r => r.join("\t")).join("\n")}`;
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+
+          const sheetFKey = freshnessKey(file_id, sheetTitle);
+          lastReadTime.set(sheetFKey, Date.now());
+          await logAction("READ", title, file_id, "", `tab:${sheetTitle}`, "success", { tabOrSection: sheetTitle });
+
+          const nextPageParams = (end_row && rows.length >= (dataEnd - dataStart))
+            ? { file_id, tab_name: sheetTitle, start_row: end_row + 1 } : null;
+
+          return buildFileResponse({
+            file_id, title, mime_type: mimeType, url, last_modified: modifiedTime,
+            tab_name: sheetTitle, content, warnings, truncated, next_page_params: nextPageParams,
+          });
+        }
+
+        // ── Google Slides ──
+        if (mimeType === "application/vnd.google-apps.presentation") {
+          const pres = await withAuthRetry(() => slides.presentations.get({ presentationId: file_id }));
+          const slideTexts = (pres.data.slides || []).map((s, i) => {
+            const t = (s.pageElements || [])
+              .flatMap(el => el.shape?.text?.textElements?.map(te => te.textRun?.content || "") || [])
+              .join(" ").trim();
+            return `Slide ${i + 1}: ${t}`;
+          });
+          let content = slideTexts.join("\n");
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+          lastReadTime.set(fKey, Date.now());
+          await logAction("READ", title, file_id, "", "slides", "success");
+          return buildFileResponse({ file_id, title, mime_type: mimeType, url, last_modified: modifiedTime, content, warnings, truncated });
+        }
+
+        // ── .docx via mammoth (Fix 2) ──
+        if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+          const res = await withAuthRetry(() =>
+            drive.files.get({ fileId: file_id, alt: "media" }, { responseType: "arraybuffer" })
+          );
+          const { value: rawText } = await mammoth.extractRawText({ buffer: Buffer.from(res.data) });
+          let content = rawText;
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+          lastReadTime.set(fKey, Date.now());
+          await logAction("READ", title, file_id, "", ".docx/mammoth", "success");
+          return buildFileResponse({ file_id, title, mime_type: mimeType, url, last_modified: modifiedTime, content, warnings, truncated });
+        }
+
+        // ── .xlsx via ExcelJS (Fix 2) ──
+        if (mimeType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+          const res = await withAuthRetry(() =>
+            drive.files.get({ fileId: file_id, alt: "media" }, { responseType: "arraybuffer" })
+          );
+          const wb = new ExcelJS.Workbook();
+          await wb.xlsx.load(Buffer.from(res.data));
+          const lines = [];
+          wb.eachSheet(ws => {
+            lines.push(`Sheet: ${ws.name}`);
+            ws.eachRow(row => { lines.push(row.values.slice(1).join("\t")); });
+          });
+          let content = lines.join("\n");
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+          lastReadTime.set(fKey, Date.now());
+          await logAction("READ", title, file_id, "", ".xlsx/ExcelJS", "success");
+          return buildFileResponse({ file_id, title, mime_type: mimeType, url, last_modified: modifiedTime, content, warnings, truncated });
+        }
+
+        // ── Export fallback ──
+        try {
+          const res = await withAuthRetry(() =>
+            drive.files.export({ fileId: file_id, mimeType: "text/plain" }, { responseType: "text" })
+          );
+          let content = res.data;
+          let truncated = false;
+          if (content.length > MAX_READ_CHARS) { content = content.slice(0, MAX_READ_CHARS); truncated = true; }
+          lastReadTime.set(fKey, Date.now());
+          await logAction("READ", title, file_id, "", "text export", "success");
+          return buildFileResponse({ file_id, title, mime_type: mimeType, url, last_modified: modifiedTime, content, warnings, truncated });
+        } catch {
+          return buildFileResponse({
+            file_id, title, mime_type: mimeType, url, last_modified: modifiedTime,
+            content: `Cannot read file type: ${mimeType}. Use export_file instead.`,
+            warnings, truncated: false,
+          });
+        }
+      }
+
+      // ── CREATE DOCUMENT ──
+      case "create_document": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const doc = await withAuthRetry(() => docs.documents.create({ requestBody: { title } }));
+        const fileId = doc.data.documentId;
+        await withAuthRetry(() => moveToFolder(fileId, folderId));
+        if (args.content) {
+          await withAuthRetry(() => docs.documents.batchUpdate({
+            documentId: fileId,
+            requestBody: { requests: [{ insertText: { location: { index: 1 }, text: args.content } }] },
+          }));
+        }
+        await logAction("CREATE", title, fileId, folderId, "Created Google Doc", "success");
+        return text(`✅ Created: "${title}"\nID: ${fileId}\nURL: https://docs.google.com/document/d/${fileId}/edit`);
+      }
+
+      // ── CREATE SPREADSHEET ──
+      case "create_spreadsheet": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const sheet = await withAuthRetry(() => sheets.spreadsheets.create({ requestBody: { properties: { title } } }));
+        const fileId = sheet.data.spreadsheetId;
+        await withAuthRetry(() => moveToFolder(fileId, folderId));
+        await logAction("CREATE", title, fileId, folderId, "Created Google Sheet", "success");
+        return text(`✅ Created: "${title}"\nID: ${fileId}\nURL: https://docs.google.com/spreadsheets/d/${fileId}/edit`);
+      }
+
+      // ── CREATE SLIDES ──
+      case "create_slides": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const pres = await withAuthRetry(() => slides.presentations.create({ requestBody: { title } }));
+        const fileId = pres.data.presentationId;
+        await withAuthRetry(() => moveToFolder(fileId, folderId));
+        await logAction("CREATE", title, fileId, folderId, "Created Google Slides", "success");
+        return text(`✅ Created: "${title}"\nID: ${fileId}\nURL: https://docs.google.com/presentation/d/${fileId}/edit`);
+      }
+
+      // ── CREATE FOLDER ──
+      case "create_folder": {
+        const parentId = args.parent_folder_id || null;
+        const folderId = await withAuthRetry(() => createFolder(args.name, parentId));
+        await logAction("CREATE_FOLDER", args.name, folderId, parentId || "root", "Created folder", "success");
+        return text(`✅ Created folder: "${args.name}"\nID: ${folderId}`);
+      }
+
+      // ── CREATE AND UPLOAD DOCX ──
+      case "create_and_upload_docx": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const { createDocxBuffer } = await import("./docx-builder.js");
+        const buffer = await createDocxBuffer(title, args.content);
+        const tmpPath = path.join(os.tmpdir(), `${title}.docx`);
+        fs.writeFileSync(tmpPath, buffer);
+        const res = await withAuthRetry(() => drive.files.create({
+          requestBody: { name: `${title}.docx`, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", parents: [folderId] },
+          media: { mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", body: fs.createReadStream(tmpPath) },
+          fields: "id",
+        }));
+        fs.unlinkSync(tmpPath);
+        await logAction("CREATE", `${title}.docx`, res.data.id, folderId, "Uploaded Word doc", "success");
+        return text(`✅ Uploaded: "${title}.docx"\nID: ${res.data.id}`);
+      }
+
+      // ── CREATE AND UPLOAD XLSX ──
+      case "create_and_upload_xlsx": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const { createXlsxBuffer } = await import("./xlsx-builder.js");
+        const buffer = await createXlsxBuffer(args.sheets);
+        const tmpPath = path.join(os.tmpdir(), `${title}.xlsx`);
+        fs.writeFileSync(tmpPath, buffer);
+        const res = await withAuthRetry(() => drive.files.create({
+          requestBody: { name: `${title}.xlsx`, mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", parents: [folderId] },
+          media: { mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", body: fs.createReadStream(tmpPath) },
+          fields: "id",
+        }));
+        fs.unlinkSync(tmpPath);
+        await logAction("CREATE", `${title}.xlsx`, res.data.id, folderId, "Uploaded Excel file", "success");
+        return text(`✅ Uploaded: "${title}.xlsx"\nID: ${res.data.id}`);
+      }
+
+      // ── CREATE AND UPLOAD PDF ──
+      case "create_and_upload_pdf": {
+        checkRateLimit();
+        const cache = loadCache();
+        const folderId = await resolveWorkspaceFolder(args.folder, cache);
+        const title = applyNaming(args.title);
+        const doc = await withAuthRetry(() => docs.documents.create({ requestBody: { title } }));
+        const docId = doc.data.documentId;
+        if (args.content) {
+          await withAuthRetry(() => docs.documents.batchUpdate({
+            documentId: docId,
+            requestBody: { requests: [{ insertText: { location: { index: 1 }, text: args.content } }] },
+          }));
+        }
+        const pdfRes = await withAuthRetry(() =>
+          drive.files.export({ fileId: docId, mimeType: "application/pdf" }, { responseType: "arraybuffer" })
+        );
+        const tmpPath = path.join(os.tmpdir(), `${title}.pdf`);
+        fs.writeFileSync(tmpPath, Buffer.from(pdfRes.data));
+        const uploaded = await withAuthRetry(() => drive.files.create({
+          requestBody: { name: `${title}.pdf`, mimeType: "application/pdf", parents: [folderId] },
+          media: { mimeType: "application/pdf", body: fs.createReadStream(tmpPath) },
+          fields: "id",
+        }));
+        fs.unlinkSync(tmpPath);
+        if (!args.keep_source_doc) await withAuthRetry(() => drive.files.update({ fileId: docId, requestBody: { trashed: true } }));
+        await logAction("CREATE", `${title}.pdf`, uploaded.data.id, folderId, "Created PDF", "success");
+        return text(`✅ Created PDF: "${title}.pdf"\nID: ${uploaded.data.id}`);
+      }
+
+      // ── APPEND TO DOCUMENT (Fix 16, 21, 22) ──
+      case "append_to_document": {
+        checkRateLimit();
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        const doc = await withAuthRetry(() => docs.documents.get({ documentId: args.file_id }));
+        const endIndex = doc.data.body.content.slice(-1)[0].endIndex - 1;
+        // Fix 21: before snapshot
+        const beforeSnap = (doc.data.body.content || [])
+          .map(el => (el.paragraph?.elements || []).map(e => e.textRun?.content || "").join("")).join("").slice(0, 200);
+        await withAuthRetry(() => docs.documents.batchUpdate({
+          documentId: args.file_id,
+          requestBody: { requests: [{ insertText: { location: { index: endIndex }, text: "\n" + args.content } }] },
+        }));
+        await logAction("EDIT_APPEND", meta.data.name, args.file_id, "", "Appended content", "success", {
+          beforeSnapshot: beforeSnap,
+          afterSnapshot: args.content.slice(0, 200),
+        });
+        return text(`✅ Content appended to "${meta.data.name}".`);
+      }
+
+      // ── APPEND ROW (Fix 17: new tool) ──
+      case "append_row": {
+        checkRateLimit();
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+
+        // Resolve target tab
+        const spreadsheet = await withAuthRetry(() => sheets.spreadsheets.get({
+          spreadsheetId: args.file_id,
+          fields: "sheets(properties(title))",
+        }));
+        const allSheets = spreadsheet.data.sheets || [];
+        let sheetTitle = allSheets[0]?.properties.title || "Sheet1";
+        if (args.tab_name) {
+          const match = allSheets.find(s => s.properties.title.toLowerCase() === args.tab_name.toLowerCase());
+          if (!match) return text(`❌ Tab "${args.tab_name}" not found. Available: ${allSheets.map(s => s.properties.title).join(", ")}`);
+          sheetTitle = match.properties.title;
+        }
+
+        // Fix 17: duplicate detection
+        if (args.check_duplicate_column && args.values.length > 0) {
+          const headerRes = await withAuthRetry(() => sheets.spreadsheets.values.get({
+            spreadsheetId: args.file_id,
+            range: `${sheetTitle}!1:1`,
+          }));
+          const headers = headerRes.data.values?.[0] || [];
+          const colIdx = headers.findIndex(h => h.toLowerCase() === args.check_duplicate_column.toLowerCase());
+          if (colIdx >= 0) {
+            const colLetter = colIndexToLetter(colIdx + 1);
+            const colRes = await withAuthRetry(() => sheets.spreadsheets.values.get({
+              spreadsheetId: args.file_id,
+              range: `${sheetTitle}!${colLetter}2:${colLetter}10000`,
+            }));
+            const existing = (colRes.data.values || []).flat().map(v => String(v).toLowerCase());
+            const newVal = String(args.values[0]).toLowerCase();
+            if (existing.includes(newVal)) {
+              return text(`⚠️ DUPLICATE BLOCKED\n\nColumn "${args.check_duplicate_column}" already contains "${args.values[0]}".\nRow not appended.`);
+            }
+          }
+        }
+
+        await withAuthRetry(() => sheets.spreadsheets.values.append({
+          spreadsheetId: args.file_id,
+          range: `${sheetTitle}!A:A`,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: [args.values] },
+        }));
+        await logAction("EDIT_APPEND_ROW", meta.data.name, args.file_id, "", `Appended row to tab: ${sheetTitle}`, "success", {
+          afterSnapshot: JSON.stringify(args.values).slice(0, 200),
+          tabOrSection: sheetTitle,
+        });
+        return text(`✅ Row appended to "${meta.data.name}" → ${sheetTitle}.`);
+      }
