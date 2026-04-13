@@ -24,6 +24,7 @@ curl -s -o "$SERVER_DIR/auth.js" "$GITHUB_RAW/auth.js" || { echo "ERROR: Downloa
 curl -s -o "$SERVER_DIR/docx-builder.js" "$GITHUB_RAW/docx-builder.js" || { echo "ERROR: Download failed."; exit 1; }
 curl -s -o "$SERVER_DIR/xlsx-builder.js" "$GITHUB_RAW/xlsx-builder.js" || { echo "ERROR: Download failed."; exit 1; }
 curl -s -o "$SERVER_DIR/package.json" "$GITHUB_RAW/package.json" || { echo "ERROR: Download failed."; exit 1; }
+curl -s -o "$SERVER_DIR/gybr-mcp-config.json" "$GITHUB_RAW/gybr-mcp-config.json" || { echo "ERROR: Download failed."; exit 1; }
 
 echo "   Files updated!"
 echo ""

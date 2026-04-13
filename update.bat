@@ -37,6 +37,9 @@ if %errorlevel% neq 0 goto download_error
 curl --ssl-no-revoke -s -o "%SERVER_DIR%\package.json" "%GITHUB_RAW%/package.json"
 if %errorlevel% neq 0 goto download_error
 
+curl --ssl-no-revoke -s -o "%SERVER_DIR%\gybr-mcp-config.json" "%GITHUB_RAW%/gybr-mcp-config.json"
+if %errorlevel% neq 0 goto download_error
+
 echo    Files updated!
 echo.
 echo Installing dependencies...
