@@ -971,3 +971,374 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
         return text(`✅ Row appended to "${meta.data.name}" → ${sheetTitle}.`);
       }
+
+      // ── OVERWRITE DOCUMENT (Fix 11, 16, 21) ──
+      case "overwrite_document": {
+        if (!args.confirm) {
+          return text(`⚠️ OVERWRITE BLOCKED\n\nThis is a destructive edit that will replace ALL content.\n\nTo proceed you must:\n1. Pass confirm: true\n2. Include a reason\n\nA backup will be automatically created in AI-Archive before any changes are made.`);
+        }
+
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name, parents" }));
+        const draftMode = args.draft_mode_override === "direct" ? "direct" : getCurrentDraftMode();
+
+        if (draftMode === "draft") {
+          const cache = loadCache();
+          const draftTitle = `DRAFT_${meta.data.name}_${formatDate()}`;
+          const copy = await withAuthRetry(() => drive.files.copy({
+            fileId: args.file_id,
+            requestBody: { name: draftTitle, parents: [cache.draftsId] },
+            fields: "id, name",
+          }));
+          const copyId = copy.data.id;
+          const copyDoc = await withAuthRetry(() => docs.documents.get({ documentId: copyId }));
+          const endIndex = copyDoc.data.body.content.slice(-1)[0].endIndex - 1;
+          if (endIndex > 1) {
+            await withAuthRetry(() => docs.documents.batchUpdate({
+              documentId: copyId,
+              requestBody: { requests: [{ deleteContentRange: { range: { startIndex: 1, endIndex } } }] },
+            }));
+          }
+          await withAuthRetry(() => docs.documents.batchUpdate({
+            documentId: copyId,
+            requestBody: { requests: [{ insertText: { location: { index: 1 }, text: args.content } }] },
+          }));
+          await logAction("EDIT_DRAFT", draftTitle, copyId, cache.draftsId, `Draft of "${meta.data.name}". Reason: ${args.reason}`, "success");
+          return text(`✅ DRAFT REVISION created (draft mode is ON)\n\nOriginal: "${meta.data.name}" — UNCHANGED\nDraft copy: "${draftTitle}"\nDraft ID: ${copyId}\n\nReview the draft, then use overwrite_document with draft_mode_override: 'direct' to apply to the original.`);
+        }
+
+        checkRateLimit();
+        const cache = loadCache();
+        const doc = await withAuthRetry(() => docs.documents.get({ documentId: args.file_id }));
+        const beforeSnap = (doc.data.body.content || [])
+          .map(el => (el.paragraph?.elements || []).map(e => e.textRun?.content || "").join("")).join("").slice(0, 300);
+
+        const backupName = `${meta.data.name}.backup-${formatDate()}`;
+        const backup = await withAuthRetry(() => drive.files.copy({
+          fileId: args.file_id,
+          requestBody: { name: backupName, parents: [cache.archiveId] },
+          fields: "id",
+        }));
+        await logAction("BACKUP", backupName, backup.data.id, cache.archiveId, `Backup before overwrite of "${meta.data.name}"`, "success");
+
+        const endIndex = doc.data.body.content.slice(-1)[0].endIndex - 1;
+        if (endIndex > 1) {
+          await withAuthRetry(() => docs.documents.batchUpdate({
+            documentId: args.file_id,
+            requestBody: { requests: [{ deleteContentRange: { range: { startIndex: 1, endIndex } } }] },
+          }));
+        }
+        await withAuthRetry(() => docs.documents.batchUpdate({
+          documentId: args.file_id,
+          requestBody: { requests: [{ insertText: { location: { index: 1 }, text: args.content } }] },
+        }));
+        await logAction("EDIT_OVERWRITE", meta.data.name, args.file_id, "", `Overwritten. Reason: ${args.reason}. Backup: ${backup.data.id}`, "success", {
+          beforeSnapshot: beforeSnap,
+          afterSnapshot: args.content.slice(0, 300),
+        });
+        return text(`✅ "${meta.data.name}" overwritten.\n\nBackup saved: "${backupName}" in AI-Archive\nBackup ID: ${backup.data.id}\nReason logged: ${args.reason}`);
+      }
+
+      // ── UPDATE SHEET VALUES ──
+      case "update_sheet_values": {
+        checkRateLimit();
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        await withAuthRetry(() => sheets.spreadsheets.values.update({
+          spreadsheetId: args.file_id,
+          range: args.range,
+          valueInputOption: "USER_ENTERED",
+          requestBody: { values: args.values },
+        }));
+        await logAction("EDIT_SHEET", meta.data.name, args.file_id, "", `Updated range ${args.range}`, "success", {
+          afterSnapshot: JSON.stringify(args.values).slice(0, 200),
+        });
+        return text(`✅ "${meta.data.name}" updated at range ${args.range}.`);
+      }
+
+      // ── COPY FILE ──
+      case "copy_file": {
+        const cache = loadCache();
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        const destFolder = args.folder_id || cache.createdId;
+        const copyName = args.new_name || `Copy of ${meta.data.name}`;
+        const res = await withAuthRetry(() => drive.files.copy({
+          fileId: args.file_id,
+          requestBody: { name: copyName, parents: destFolder ? [destFolder] : undefined },
+          fields: "id, name",
+        }));
+        await logAction("COPY", res.data.name, res.data.id, destFolder || "", `Copied from "${meta.data.name}"`, "success");
+        return text(`✅ Copied as: "${res.data.name}"\nID: ${res.data.id}`);
+      }
+
+      // ── MOVE FILE (Fix 12: dry_run) ──
+      case "move_file": {
+        const cache = loadCache();
+        const destFolder = args.new_folder_id === "archive" ? cache.archiveId : args.new_folder_id;
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name, parents" }));
+        const currentParents = (meta.data.parents || []).join(",");
+
+        if (args.dry_run) {
+          return text(`🔍 DRY RUN — Move preview\n\nFile: "${meta.data.name}" (${args.file_id})\nFrom folder(s): ${currentParents}\nTo folder: ${destFolder}\n\nNo changes made. Remove dry_run: true to execute.`);
+        }
+
+        await withAuthRetry(() => drive.files.update({
+          fileId: args.file_id,
+          addParents: destFolder,
+          removeParents: currentParents,
+          fields: "id, parents",
+        }));
+        await logAction("MOVE", meta.data.name, args.file_id, destFolder, "Moved file", "success");
+        return text(`✅ "${meta.data.name}" moved successfully.`);
+      }
+
+      // ── RENAME FILE ──
+      case "rename_file": {
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        await withAuthRetry(() => drive.files.update({
+          fileId: args.file_id,
+          requestBody: { name: args.new_name },
+          fields: "id, name",
+        }));
+        await logAction("RENAME", args.new_name, args.file_id, "", `Renamed from "${meta.data.name}"`, "success", {
+          beforeSnapshot: meta.data.name,
+          afterSnapshot: args.new_name,
+        });
+        return text(`✅ Renamed to: "${args.new_name}"`);
+      }
+
+      // ── DELETE FILE (Fix 3: soft delete only) ──
+      case "delete_file": {
+        if (!args.confirm) {
+          return text(`⚠️ DELETE BLOCKED\n\nTo delete a file you must:\n1. Pass confirm: true\n2. Provide a reason\n\nNote: Files are only moved to trash, never permanently deleted.`);
+        }
+        if (!args.reason) {
+          return text(`⚠️ DELETE BLOCKED\n\nA reason is required for all deletions.`);
+        }
+        if (deleteCount >= config.rateLimits.maxDeletesPerSession) {
+          return text(`⚠️ DELETE LIMIT REACHED\n\nMax ${config.rateLimits.maxDeletesPerSession} deletes per session reached. Restart Claude Desktop to reset.`);
+        }
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        await withAuthRetry(() => drive.files.update({ fileId: args.file_id, requestBody: { trashed: true } }));
+        deleteCount++;
+        await logAction("DELETE", meta.data.name, args.file_id, "", `Trashed. Reason: ${args.reason}`, "success");
+        return text(`🗑️ "${meta.data.name}" moved to trash.\nReason: ${args.reason}\nDeletes this session: ${deleteCount}/${config.rateLimits.maxDeletesPerSession}`);
+      }
+
+      // ── SHARE FILE ──
+      case "share_file": {
+        const meta = await withAuthRetry(() => drive.files.get({ fileId: args.file_id, fields: "name" }));
+        await withAuthRetry(() => drive.permissions.create({
+          fileId: args.file_id,
+          requestBody: { type: "user", role: args.role, emailAddress: args.email },
+        }));
+        await logAction("SHARE", meta.data.name, args.file_id, "", `Shared with ${args.email} as ${args.role}`, "success");
+        return text(`✅ "${meta.data.name}" shared with ${args.email} as ${args.role}.`);
+      }
+
+      // ── EXPORT FILE ──
+      case "export_file": {
+        const cache = loadCache();
+        const folderId = args.folder_id || cache.exportsId || cache.createdId;
+        const mimeMap = {
+          pdf: "application/pdf",
+          docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        };
+        const exportMime = mimeMap[args.format];
+        if (!exportMime) return text(`❌ Unknown format: ${args.format}. Use pdf, docx, or xlsx.`);
+        const exportRes = await withAuthRetry(() =>
+          drive.files.export({ fileId: args.file_id, mimeType: exportMime }, { responseType: "arraybuffer" })
+        );
+        const fileName = `${args.output_name}.${args.format}`;
+        const tmpPath = path.join(os.tmpdir(), fileName);
+        fs.writeFileSync(tmpPath, Buffer.from(exportRes.data));
+        const uploaded = await withAuthRetry(() => drive.files.create({
+          requestBody: { name: fileName, mimeType: exportMime, parents: [folderId] },
+          media: { mimeType: exportMime, body: fs.createReadStream(tmpPath) },
+          fields: "id",
+        }));
+        fs.unlinkSync(tmpPath);
+        await logAction("EXPORT", fileName, uploaded.data.id, folderId, `Exported as ${args.format}`, "success");
+        return text(`✅ Exported as ${args.format.toUpperCase()}: "${fileName}"\nID: ${uploaded.data.id}`);
+      }
+
+      default:
+        return text(`Unknown tool: ${name}`);
+    }
+  } catch (err) {
+    await logAction("ERROR", name, "", "", err.message, "error").catch(() => {});
+    return text(`❌ Error: ${err.message}`);
+  }
+});
+
+// ─── Helper Functions ─────────────────────────────────────────────────────────
+
+function getCurrentDraftMode() {
+  if (sessionDraftMode !== null) return sessionDraftMode;
+  return config.draftMode?.defaultMode || "draft";
+}
+
+function applyNaming(title) {
+  if (title.startsWith("AI_")) return title;
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `AI_${date}_${title}`;
+}
+
+function formatDate() {
+  return new Date().toISOString().slice(0, 16).replace("T", "T").replace(/:/g, "-");
+}
+
+// Fix 5: persist rate limit state to disk
+function saveRateLimit() {
+  try { fs.writeFileSync(RATELIMIT_PATH, JSON.stringify({ timestamps: writeTimestamps }, null, 2)); } catch {}
+}
+
+function checkRateLimit() {
+  const now = Date.now(), ago = now - 60000;
+  while (writeTimestamps.length && writeTimestamps[0] < ago) writeTimestamps.shift();
+  if (writeTimestamps.length >= config.rateLimits.maxWritesPerMinute) {
+    throw new Error(`Rate limit reached: max ${config.rateLimits.maxWritesPerMinute} writes per minute. Wait a moment and try again.`);
+  }
+  writeTimestamps.push(now);
+  saveRateLimit();
+}
+
+async function resolveShortcut(folderId) {
+  const cache = loadCache();
+  const shortcuts = {
+    root: "root",
+    workspace: cache.workspaceId,
+    created: cache.createdId,
+    drafts: cache.draftsId,
+    archive: cache.archiveId,
+    exports: cache.exportsId,
+    logs: cache.logsId,
+  };
+  return shortcuts[folderId] || folderId;
+}
+
+async function resolveWorkspaceFolder(folderArg, cache) {
+  if (!folderArg || folderArg === "created") return cache.createdId || "root";
+  if (folderArg === "drafts") return cache.draftsId || "root";
+  if (folderArg === "exports") return cache.exportsId || "root";
+  return folderArg;
+}
+
+// Fix 21: extended 11-column log
+async function logAction(action, fileName, fileId, folderId, details, status, extras = {}) {
+  try {
+    if (!config.logging.logReads && action === "READ") return;
+    const cache = loadCache();
+    if (!cache.logSheetId) return;
+    const { beforeSnapshot = "", afterSnapshot = "", tabOrSection = "", retryUsed = false } = extras;
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: cache.logSheetId,
+      range: "A:K",
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[
+          new Date().toISOString(), action, fileName, fileId, folderId, details, status,
+          String(beforeSnapshot).slice(0, 300),
+          String(afterSnapshot).slice(0, 300),
+          tabOrSection,
+          retryUsed ? "yes" : "no",
+        ]],
+      },
+    });
+  } catch {}
+}
+
+async function createFolder(name, parentId) {
+  const res = await drive.files.create({
+    requestBody: {
+      name,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: parentId ? [parentId] : [],
+    },
+    fields: "id",
+  });
+  return res.data.id;
+}
+
+async function moveToFolder(fileId, newFolderId) {
+  const fileMeta = await drive.files.get({ fileId, fields: "parents" });
+  await drive.files.update({
+    fileId,
+    addParents: newFolderId,
+    removeParents: (fileMeta.data.parents || []).join(","),
+    fields: "id, parents",
+  });
+}
+
+function loadCache() {
+  try { if (fs.existsSync(CACHE_PATH)) return JSON.parse(fs.readFileSync(CACHE_PATH, "utf-8")); } catch {}
+  return {};
+}
+
+function saveCache(data) {
+  fs.writeFileSync(CACHE_PATH, JSON.stringify(data, null, 2));
+}
+
+function text(content) {
+  return { content: [{ type: "text", text: content }] };
+}
+
+function mimeIcon(mimeType) {
+  if (!mimeType) return "📄";
+  if (mimeType.includes("folder")) return "📁";
+  if (mimeType.includes("document")) return "📝";
+  if (mimeType.includes("spreadsheet")) return "📊";
+  if (mimeType.includes("presentation")) return "🎬";
+  if (mimeType.includes("pdf")) return "📕";
+  if (mimeType.includes("image")) return "🖼️";
+  return "📄";
+}
+
+// Fix 24: column index to spreadsheet letter (A, B, ..., Z, AA, ...)
+function colIndexToLetter(n) {
+  let s = "";
+  while (n > 0) {
+    s = String.fromCharCode(65 + ((n - 1) % 26)) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s || "A";
+}
+
+// Fix 22: freshness key
+function freshnessKey(fileId, tabOrSection) {
+  return tabOrSection ? `${fileId}::${tabOrSection}` : fileId;
+}
+
+// Fix 1: normalized response shape for all read_file branches
+function buildFileResponse({
+  file_id, title, mime_type, url, last_modified,
+  tab_name, section_name, content, warnings, truncated,
+  page, total_pages, next_page_params,
+}) {
+  const meta = [
+    `file_id: ${file_id}`,
+    `title: ${title}`,
+    `mime_type: ${mime_type}`,
+    url              ? `url: ${url}`                         : null,
+    last_modified    ? `last_modified: ${last_modified}`     : null,
+    tab_name         ? `tab_name: ${tab_name}`               : null,
+    section_name     ? `section_name: ${section_name}`       : null,
+    `truncated: ${truncated || false}`,
+    page !== undefined        ? `page: ${page}`              : null,
+    total_pages !== undefined ? `total_pages: ${total_pages}`: null,
+  ].filter(Boolean).join("\n");
+
+  const w = warnings?.length
+    ? `\n⚠️ Warnings:\n${warnings.map((x) => `  - ${x}`).join("\n")}\n`
+    : "";
+  const np = next_page_params
+    ? `\n📄 Next page params: ${JSON.stringify(next_page_params)}\n`
+    : "";
+
+  return text(`${meta}\n${w}${np}\n---\n${content}`);
+}
+
+// ─── Start ────────────────────────────────────────────────────────────────────
+
+const transport = new StdioServerTransport();
+await server.connect(transport);
+console.error("GYBR Google Drive MCP Server v5.1 — Full Governance Edition running.");
